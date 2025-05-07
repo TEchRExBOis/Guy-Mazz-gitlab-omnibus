@@ -168,6 +168,12 @@ resource "aws_security_group" "gitlab_sg" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   egress {
     from_port   = 0
@@ -194,7 +200,7 @@ resource "aws_ebs_volume" "gitlab_data" {
 # --- EC2 Instance for GitLab ---
 resource "aws_instance" "gitlab" {
   ami                         = "ami-0fc5d935ebf8bc3bc" # Ubuntu 22.04 LTS
-  instance_type               = "t3.medium"
+  instance_type               = "c5.xlarge"
   subnet_id                   = aws_subnet.public_a.id
   vpc_security_group_ids      = [aws_security_group.gitlab_sg.id]
   associate_public_ip_address = true
@@ -274,4 +280,55 @@ resource "aws_db_instance" "gitlab" {
   tags = {
     Name = "GitLab RDS"
   }
+}
+resource "aws_security_group" "gitlab_runner_sg" {
+  name        = "gitlab-runner-sg"
+  description = "Allow SSH and GitLab Runner connectivity"
+  vpc_id      = aws_vpc.gitlab_vpc.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/32"]  # Replace with your IP
+  }
+
+  ingress {
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.gitlab_sg.id] # Allow connection to GitLab HTTPS
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "gitlab-runner-sg"
+  }
+}
+
+resource "aws_instance" "gitlab_runner" {
+  ami                         = "ami-0fc5d935ebf8bc3bc" # Ubuntu 22.04
+  instance_type               = "t3.small"
+  subnet_id                   = aws_subnet.public_b.id
+  vpc_security_group_ids      = [aws_security_group.gitlab_runner_sg.id]
+  associate_public_ip_address = true
+
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
+  tags = {
+    Name = "gitlab-runner"
+  }
+
+  user_data = file("gitlab-runner-userdata.sh") # Optional shell script to auto-install runner
+
+  depends_on = [aws_internet_gateway.gw]
 }
